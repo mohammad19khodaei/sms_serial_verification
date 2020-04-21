@@ -1,15 +1,14 @@
-from flask import Flask
+from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 
-@app.route('/')
-def hello_world():
-    return "hello flask"
-
-
-@app.route('v1/getsms')
-def get_sms():
-    pass
+@app.route('/v1/process', methods=['POST'])
+def process():
+    data = request.form
+    sender = data.get('from')
+    message = data.get('message')
+    print(f'message: {message} form {sender}')
+    return jsonify({'message': 'your sms is processing...'}), 200
 
 
 def send_sms():
@@ -18,3 +17,7 @@ def send_sms():
 
 def check_sms():
     pass
+
+
+if __name__ == '__main__':
+    app.run('0.0.0.0', '5000', debug=True)
