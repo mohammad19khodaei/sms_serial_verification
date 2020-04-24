@@ -1,4 +1,6 @@
 from flask import Flask, request, jsonify
+import requests
+import config
 app = Flask(__name__)
 
 
@@ -7,12 +9,19 @@ def process():
     data = request.form
     sender = data.get('from')
     message = data.get('message')
-    print(f'message: {message} form {sender}')
+    send_sms(sender, message)
     return jsonify({'message': 'your sms is processing...'}), 200
 
 
-def send_sms():
-    pass
+def send_sms(sender, message):
+    data = {
+        'from': sender,
+        'message': 'i love you ' + message,
+        'token': config.token
+    }
+
+    response = requests.post('http://arvan/send-sms', data=data)
+    print(response.text)
 
 
 def check_sms():
