@@ -16,7 +16,7 @@ def process():
     """
     data = request.form
     sender = data.get('from')
-    message = data.get('message')
+    message = normalize_string(data.get('message'))
     send_sms(sender, message)
     return jsonify({'message': 'your sms message processed'}), 200
 
@@ -38,6 +38,22 @@ def send_sms(sender, message):
     print(response.text)
 
 
+def normalize_string(string):
+    """ convert persian digit to enlgish one and make all letter capital
+
+    Arguments:
+        string {string} -- input string
+
+    Returns:
+        [string] -- [normalized string]
+    """
+    from_string = '۱۲۳۴۵۶۷۸۹۰'
+    to_string = '1234567890'
+    for index in range(len(from_string)):
+        string = string.replace(from_string[index], to_string[index])
+    return string.upper()
+
+
 def import_excel_to_db(file_path):
     """import excel to sqlite
 
@@ -55,6 +71,8 @@ def import_excel_to_db(file_path):
 
     serial_counter = 0
     for i, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
+        start_serial = normalize_string(start_serial)
+        end_serial = normalize_string(end_serial)
         query = f'''INSERT INTO serials("reference", "description", "start_serial", "end_serial", "date")
         VALUES("{ref}", "{desc}", "{start_serial}", "{end_serial}", "{date}")'''
         cursor.execute(query)
@@ -67,6 +85,7 @@ def import_excel_to_db(file_path):
     data_frame = read_excel(file_path, sheet_name=1)
     invalid_counter = 0
     for i, (failed_serial, ) in data_frame.iterrows():
+        failed_serial = normalize_string(failed_serial)
         query = f'INSERT INTO invalids VALUES ("{failed_serial}")'
         cursor.execute(query)
         if invalid_counter % 2 == 0:
