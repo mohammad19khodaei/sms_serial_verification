@@ -1,0 +1,3 @@
+API_KEY = ''
+SMS_SERVER = '' 
+DATABASE_FILE_PATH = ''
