@@ -3,6 +3,7 @@ from pandas import read_excel
 import requests
 import config
 import sqlite3
+import re
 
 app = Flask(__name__)
 
@@ -51,7 +52,8 @@ def normalize_string(string):
     to_string = '1234567890'
     for index in range(len(from_string)):
         string = string.replace(from_string[index], to_string[index])
-    return string.upper()
+
+    return re.sub(r'\W+', '', string.upper())
 
 
 def import_excel_to_db(file_path):
