@@ -8,6 +8,11 @@ import re
 app = Flask(__name__)
 
 
+@app.route('/v1.ok')
+def health_check():
+    return jsonify({'message': 'ok'}), 200
+
+
 @app.route('/v1/process', methods=['POST'])
 def process():
     """ call this method when we receive sms from customers
@@ -126,5 +131,4 @@ def check_sms():
 
 
 if __name__ == '__main__':
-    import_excel_to_db('../data/data.xlsx')
-    #app.run('0.0.0.0', '5000', debug=True)
+    app.run('0.0.0.0', '5000', debug=True)
