@@ -1,3 +1,15 @@
+# api key for connctiong to sms server
 API_KEY = ''
+
+# sms server address
 SMS_SERVER = '' 
+
+# file of database
 DATABASE_FILE_PATH = ''
+
+# secret key for session
+SECRET_KEY = ''
+
+# auth credentials
+USERNAME = ''
+PASSWORD = ''
