@@ -105,7 +105,7 @@ def send_sms(receiver, message):
     print(response.text)
 
 
-def normalize_string(data):
+def normalize_string(data, fixed_size=30):
     """ convert persian digit to enlgish one and make all letter capital
         and remove any alphanumeric character
 
@@ -115,13 +115,30 @@ def normalize_string(data):
     Returns:
         [string] -- [normalized string]
     """
-    from_string = '۱۲۳۴۵۶۷۸۹۰'
-    to_string = '1234567890'
-    for index in range(len(from_string)):
-        data = data.replace(from_string[index], to_string[index])
+    persian_numerals = '۱۲۳۴۵۶۷۸۹۰'
+    arabic_numerals = '١٢٣٤٥٦٧٨٩٠'
+    english_numerals = '1234567890'
+    for index in range(len(persian_numerals)):
+        # replace english digits with persian and arabic digits
+        data = data.replace(persian_numerals[index], english_numerals[index])
+        data = data.replace(arabic_numerals[index], english_numerals[index])
 
     data = data.upper()
-    return re.sub(r'\W+', '', data)  # remove any alphanumeric character
+    # remove any none alphanumeric character
+    data = re.sub(r'\W+', '', data)
+
+    # find all alpha and digits chars
+    all_alpha = ''
+    all_digit = ''
+    for char in data:
+        if char.isalpha():
+            all_alpha += char
+        elif char.isdigit():
+            all_digit += char
+
+    # add enough zero between alpha and digit characters
+    number_of_zero = fixed_size - len(all_alpha) - len(all_digit)
+    return all_alpha + ('0' * number_of_zero) + all_digit
 
 
 def import_excel_to_db(file_path):
