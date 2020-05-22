@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, redirect, url_for, abort
+from flask_login import LoginManager, UserMixin, login_required, login_user, logout_user
 from pandas import read_excel
 import requests
 import config
@@ -7,8 +8,65 @@ import re
 
 app = Flask(__name__)
 
+app.config['SECRET_KEY'] = config.SECRET_KEY
 
-@app.route('/v1.ok')
+# flask login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+
+
+class User(UserMixin):  # silly user model
+
+    def __init__(self, id):
+        self.id = id
+
+
+@app.route('/')
+@login_required
+def home():
+    return Response("Hello World!")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username == config.USERNAME and password == config.PASSWORD:
+            user = User(1)
+            login_user(user)
+            return redirect('/')
+        else:
+            return abort(401)
+    else:
+        return Response('''
+        <form action="" method="post">
+            <p><input type=text name=username>
+            <p><input type=password name=password>
+            <p><input type=submit value=Login>
+        </form>
+        ''')
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+
+@app.errorhandler(401)
+def page_not_found(error):
+    return Response('<p>Login failed</p>')
+
+
+@login_manager.user_loader
+def load_user(userid):
+    return User(userid)
+
+
+@app.route('/v1/ok')
 def health_check():
     return jsonify({'message': 'ok'}), 200
 
@@ -23,20 +81,23 @@ def process():
     data = request.form
     sender = data.get('from')
     message = normalize_string(data.get('message'))
-    send_sms(sender, message)
+
+    response = check_serial(message)
+
+    send_sms(sender, response)
     return jsonify({'message': 'your sms message processed'}), 200
 
 
-def send_sms(sender, message):
+def send_sms(receiver, message):
     """send sms using arvan fake sms server
 
     Arguments:
-        sender {[string]} -- [sender of sms]
+        sender {[string]} -- [receiver of sms]
         message {[string]} -- [text of sms]
     """
     data = {
-        'from': sender,
-        'message': 'i love you ' + message,
+        'to': receiver,
+        'message': message,
         'token': config.API_KEY
     }
 
@@ -44,11 +105,12 @@ def send_sms(sender, message):
     print(response.text)
 
 
-def normalize_string(string):
+def normalize_string(data):
     """ convert persian digit to enlgish one and make all letter capital
+        and remove any alphanumeric character
 
     Arguments:
-        string {string} -- input string
+        data {string} -- input string
 
     Returns:
         [string] -- [normalized string]
@@ -56,9 +118,10 @@ def normalize_string(string):
     from_string = '۱۲۳۴۵۶۷۸۹۰'
     to_string = '1234567890'
     for index in range(len(from_string)):
-        string = string.replace(from_string[index], to_string[index])
+        data = data.replace(from_string[index], to_string[index])
 
-    return re.sub(r'\W+', '', string.upper())
+    data = data.upper()
+    return re.sub(r'\W+', '', data)  # remove any alphanumeric character
 
 
 def import_excel_to_db(file_path):
@@ -76,30 +139,25 @@ def import_excel_to_db(file_path):
     # sheet 0 contains valid codes
     data_frame = read_excel(file_path, sheet_name=0)
 
-    serial_counter = 0
     for i, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
         start_serial = normalize_string(start_serial)
         end_serial = normalize_string(end_serial)
         query = f'''INSERT INTO serials("reference", "description", "start_serial", "end_serial", "date")
         VALUES("{ref}", "{desc}", "{start_serial}", "{end_serial}", "{date}")'''
         cursor.execute(query)
-        if serial_counter % 2 == 0:
-            connection.commit()
-            serial_counter += 1
+    # commit valid serials to serials table
     connection.commit()
 
     # sheet 1 contains failed codes
     data_frame = read_excel(file_path, sheet_name=1)
-    invalid_counter = 0
     for i, (failed_serial, ) in data_frame.iterrows():
         failed_serial = normalize_string(failed_serial)
         query = f'INSERT INTO invalids VALUES ("{failed_serial}")'
         cursor.execute(query)
-        if invalid_counter % 2 == 0:
-            connection.commit()
-            invalid_counter += 1
+    # commit failed serials to invalids table
     connection.commit()
 
+    # commit queries to database and close connection
     connection.close()
 
 
@@ -126,9 +184,36 @@ def create_tables():
     connection.close()
 
 
-def check_sms():
-    pass
+def check_serial(serial):
+    """ check input serial that receive from sms
+
+    Arguments:
+        serial {string} -- input serial
+
+    Returns:
+        [string] -- check result
+    """
+    if len(serial) != 6:
+        return 'can not find your serial inside our db'
+
+    connection = sqlite3.connect(config.DATABASE_FILE_PATH)
+    cursor = connection.cursor()
+
+    query = f'SELECT * FROM invalids WHERE failed_serial = "{serial}";'
+    cursor.execute(query)
+
+    if len(cursor.fetchall()) == 1:
+        return 'your serial is invalid'
+
+    query = f'SELECT * FROM serials WHERE start_serial < "{serial}" AND end_serial > "{serial}"'
+    cursor.execute(query)
+
+    if len(cursor.fetchall()) == 1:
+        return 'your serial is valid'
+
+    return 'can not find your serial inside our db'
 
 
 if __name__ == '__main__':
+    import_excel_to_db('../data/data.xlsx')
     app.run('0.0.0.0', '5000', debug=True)
