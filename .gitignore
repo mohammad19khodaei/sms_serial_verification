@@ -1,5 +1,5 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+app/__pycache__/
 *.py[cod]
 *$py.class
 *.swp
@@ -133,4 +133,4 @@ dmypy.json
 
 # project files
 config.py
-test.py
+database.sqlite

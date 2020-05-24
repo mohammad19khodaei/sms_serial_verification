@@ -232,5 +232,5 @@ def check_serial(serial):
 
 
 if __name__ == '__main__':
-    import_excel_to_db('../data/data.xlsx')
+    import_excel_to_db('../data.xlsx')
     app.run('0.0.0.0', '5000', debug=True)
