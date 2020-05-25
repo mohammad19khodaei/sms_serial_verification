@@ -13,3 +13,7 @@ SECRET_KEY = ''
 # auth credentials
 USERNAME = ''
 PASSWORD = ''
+
+# upload directory config - do not change blow
+UPLOAD_DIRECTORY = '/tmp'
+ALLOWED_EXTENSIONS = ['xlsx']
