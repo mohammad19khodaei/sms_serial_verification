@@ -11,8 +11,11 @@ from flask import (
     abort,
     flash,
     get_flashed_messages,
+    render_template,
 )
 from flask_login import LoginManager, UserMixin, login_required, login_user, logout_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from pandas import read_excel
 from werkzeug.utils import secure_filename
 import requests
@@ -28,10 +31,14 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
+# flask limiter
+limiter = Limiter(app, key_func=get_remote_address)
+
 
 class User(UserMixin):  # silly user model
     def __init__(self, id):
         self.id = id
+        self.name = "jadi"
 
 
 def allowed_file(filename):
@@ -41,66 +48,60 @@ def allowed_file(filename):
     )
 
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET"])
 @login_required
 def home():
-    if request.method == "POST":
-        # check if the post request has the file part
-        if "file" not in request.files:
-            flash("No file part")
-            return redirect(request.url)
-        file = request.files["file"]
-        # if user does not select file, browser also
-        # submit an empty part without filename
-        if file.filename == "":
-            flash("No selected file")
-            return redirect(request.url)
-        if not allowed_file(file.filename):
-            flash("Not allowd file")
-            return redirect(request.url)
-        else:
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            file.save(filepath)
-            import_excel_to_db(filepath)
-            flash("excel file uploaded successfully")
-            return redirect(url_for("home"))
+    return render_template("index.html")
 
-    messages = get_flashed_messages()
-    message = messages[0] if messages else ""
-    return f"""
-    <!doctype html>
-    <title>Upload new File</title>
-    <h1>Upload new File</h1>
-    <h3>{message}</h3>
-    <form method=post enctype=multipart/form-data>
-      <input type=file name=file>
-      <input type=submit value=Upload>
-    </form>
+
+@app.route("/upload", methods=["POST"])
+def upload_excel():
+    """ handle excel file upload
     """
+    # check if the post request has the file part
+    if "file" not in request.files:
+        flash("No file part", "warning")
+        return redirect(url_for("home"))
+
+    file = request.files["file"]
+    # if user does not select file, browser also
+    # submit an empty part without filename
+    if file.filename == "":
+        flash("No selected file", "warning")
+        return redirect(url_for("home"))
+
+    if not allowed_file(file.filename):
+        flash("Not allowd file", "warning")
+        return redirect(url_for("home"))
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+    import_excel_to_db(filepath)
+    flash("excel file uploaded successfully", "success")
+    return redirect(url_for("home"))
 
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET"])
 def login():
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-        if username == config.USERNAME and password == config.PASSWORD:
-            user = User(1)
-            login_user(user)
-            return redirect("/")
-        else:
-            return abort(401)
+    return render_template("login.html")
+
+
+@app.route("/login", methods=["POST"])
+@limiter.limit("10 per minute")
+def attemp():
+    """ check input username and password
+    """
+    username = request.form.get("username")
+    password = request.form.get("password")
+    remember = True if request.form.get("remember") else False
+    if username == config.USERNAME and password == config.PASSWORD:
+        user = User(1)
+        login_user(user, remember=remember)
+        return redirect("/")
     else:
-        return Response(
-            """
-        <form action="" method="post">
-            <p><input type=text name=username>
-            <p><input type=password name=password>
-            <p><input type=submit value=Login>
-        </form>
-        """
-        )
+        flash("Username or Password is incorrect")
+        return redirect(url_for("login"))
 
 
 @app.route("/logout")
@@ -108,11 +109,6 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for("login"))
-
-
-@app.errorhandler(401)
-def page_not_found(error):
-    return Response("<p>Login failed</p>")
 
 
 @login_manager.user_loader
@@ -125,7 +121,7 @@ def health_check():
     return jsonify({"message": "ok"}), 200
 
 
-@app.route("/v1/process", methods=["POST"])
+@app.route(f"/v1/{config.CALL_BACK_TOKEN}/process", methods=["POST"])
 def process():
     """ call this method when we receive sms from customers
 
@@ -150,9 +146,10 @@ def send_sms(receiver, message):
         message {[string]} -- [text of sms]
     """
     data = {"to": receiver, "message": message, "token": config.API_KEY}
+    print(data)  # TODO uncomment below code
 
-    response = requests.post(config.SMS_SERVER, data=data)
-    print(response.text)
+    # response = requests.post(config.SMS_SERVER, data=data)
+    # print(response.text)
 
 
 def normalize_string(data, fixed_size=30):
@@ -264,8 +261,6 @@ def check_serial(serial):
     Returns:
         [string] -- check result
     """
-    if len(serial) != 6:
-        return "can not find your serial inside our db"
 
     connection = sqlite3.connect(config.DATABASE_FILE_PATH)
     cursor = connection.cursor()
@@ -273,10 +268,10 @@ def check_serial(serial):
     query = f'SELECT * FROM invalids WHERE failed_serial = "{serial}";'
     cursor.execute(query)
 
-    if len(cursor.fetchall()) == 1:
+    if len(cursor.fetchall()) > 0:
         return "your serial is invalid"
 
-    query = f'SELECT * FROM serials WHERE start_serial < "{serial}" AND end_serial > "{serial}"'
+    query = f'SELECT * FROM serials WHERE start_serial <= "{serial}" AND end_serial >= "{serial}"'
     cursor.execute(query)
 
     if len(cursor.fetchall()) == 1:

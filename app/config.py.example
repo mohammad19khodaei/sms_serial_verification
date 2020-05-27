@@ -1,6 +1,9 @@
 # api key for connctiong to sms server
 API_KEY = ''
 
+# call back token for process incomming sms
+CALL_BACK_TOKEN = ''
+
 # sms server address
 SMS_SERVER = '' 
 
