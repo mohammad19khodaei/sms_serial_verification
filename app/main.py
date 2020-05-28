@@ -13,7 +13,14 @@ from flask import (
     get_flashed_messages,
     render_template,
 )
-from flask_login import LoginManager, UserMixin, login_required, login_user, logout_user
+from flask_login import (
+    LoginManager,
+    UserMixin,
+    login_required,
+    login_user,
+    logout_user,
+    current_user,
+)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pandas import read_excel
@@ -60,30 +67,34 @@ def upload_excel():
     """
     # check if the post request has the file part
     if "file" not in request.files:
-        flash("No file part", "warning")
+        flash("No file part", "danger")
         return redirect(url_for("home"))
 
     file = request.files["file"]
     # if user does not select file, browser also
     # submit an empty part without filename
     if file.filename == "":
-        flash("No selected file", "warning")
+        flash("No selected file", "danger")
         return redirect(url_for("home"))
 
     if not allowed_file(file.filename):
-        flash("Not allowd file", "warning")
+        flash("Not allowd file", "danger")
         return redirect(url_for("home"))
 
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
     import_excel_to_db(filepath)
+    os.remove(filepath)
     flash("excel file uploaded successfully", "success")
     return redirect(url_for("home"))
 
 
 @app.route("/login", methods=["GET"])
 def login():
+    if current_user.is_authenticated:
+        flash("you are already logged in", "warning")
+        return redirect(url_for("home"))
     return render_template("login.html")
 
 
@@ -100,7 +111,7 @@ def attemp():
         login_user(user, remember=remember)
         return redirect("/")
     else:
-        flash("Username or Password is incorrect")
+        flash("Username or Password is incorrect", "danger")
         return redirect(url_for("login"))
 
 
@@ -206,9 +217,8 @@ def import_excel_to_db(file_path):
     for i, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
         start_serial = normalize_string(start_serial)
         end_serial = normalize_string(end_serial)
-        query = f"""INSERT INTO serials("reference", "description", "start_serial", "end_serial", "date")
-        VALUES("{ref}", "{desc}", "{start_serial}", "{end_serial}", "{date}")"""
-        cursor.execute(query)
+        query = 'INSERT INTO serials("reference", "description", "start_serial", "end_serial", "date") VALUES (?, ?, ?, ?, ?)'
+        cursor.execute(query, (ref, desc, start_serial, end_serial, str(date)))
     # commit valid serials to serials table
     connection.commit()
 
@@ -216,8 +226,8 @@ def import_excel_to_db(file_path):
     data_frame = read_excel(file_path, sheet_name=1)
     for i, (failed_serial,) in data_frame.iterrows():
         failed_serial = normalize_string(failed_serial)
-        query = f'INSERT INTO invalids VALUES ("{failed_serial}")'
-        cursor.execute(query)
+        query = "INSERT INTO invalids VALUES (?)"
+        cursor.execute(query, (failed_serial,))
     # commit failed serials to invalids table
     connection.commit()
 
@@ -232,7 +242,7 @@ def create_tables():
     cursor = connection.cursor()
     cursor.execute("DROP TABLE IF EXISTS serials;")
     cursor.execute(
-        """CREATE TABLE IF NOT EXISTS serials (
+        """CREATE TABLE serials (
             id INTEGER PRIMARY KEY,
             reference TEXT,
             description TEXT,
@@ -244,7 +254,7 @@ def create_tables():
 
     cursor.execute("DROP TABLE IF EXISTS invalids")
     cursor.execute(
-        """CREATE TABLE IF NOT EXISTS invalids (
+        """CREATE TABLE invalids (
             failed_serial TEXT PRIMARY KEY
         );"""
     )
@@ -265,14 +275,14 @@ def check_serial(serial):
     connection = sqlite3.connect(config.DATABASE_FILE_PATH)
     cursor = connection.cursor()
 
-    query = f'SELECT * FROM invalids WHERE failed_serial = "{serial}";'
-    cursor.execute(query)
+    query = "SELECT * FROM invalids WHERE failed_serial == ?;"
+    cursor.execute(query, (serial,))
 
     if len(cursor.fetchall()) > 0:
         return "your serial is invalid"
 
-    query = f'SELECT * FROM serials WHERE start_serial <= "{serial}" AND end_serial >= "{serial}"'
-    cursor.execute(query)
+    query = "SELECT * FROM serials WHERE start_serial <= ? AND end_serial >= ?"
+    cursor.execute(query, (serial, serial))
 
     if len(cursor.fetchall()) == 1:
         return "your serial is valid"
