@@ -1,4 +1,4 @@
-import sqlite3
+import MySQLdb
 import re
 import os
 from flask import (
@@ -208,7 +208,12 @@ def import_excel_to_db(file_path):
 
     create_tables()
 
-    connection = sqlite3.connect(config.DATABASE_FILE_PATH)
+    connection = MySQLdb.connect(
+        host=config.MYSQL_HOST,
+        db=config.MYSQL_DATABASE,
+        user=config.MYSQL_USERNAME,
+        passwd=config.MYSQL_PASSWORD,
+    )
     cursor = connection.cursor()
 
     # sheet 0 contains valid codes
@@ -217,8 +222,8 @@ def import_excel_to_db(file_path):
     for i, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
         start_serial = normalize_string(start_serial)
         end_serial = normalize_string(end_serial)
-        query = 'INSERT INTO serials("reference", "description", "start_serial", "end_serial", "date") VALUES (?, ?, ?, ?, ?)'
-        cursor.execute(query, (ref, desc, start_serial, end_serial, str(date)))
+        query = "INSERT INTO serials(reference, description, start_serial, end_serial, date) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(query, (ref, desc, start_serial, end_serial, date))
     # commit valid serials to serials table
     connection.commit()
 
@@ -226,7 +231,7 @@ def import_excel_to_db(file_path):
     data_frame = read_excel(file_path, sheet_name=1)
     for i, (failed_serial,) in data_frame.iterrows():
         failed_serial = normalize_string(failed_serial)
-        query = "INSERT INTO invalids VALUES (?)"
+        query = "INSERT INTO invalids VALUES (%s)"
         cursor.execute(query, (failed_serial,))
     # commit failed serials to invalids table
     connection.commit()
@@ -238,24 +243,29 @@ def import_excel_to_db(file_path):
 def create_tables():
     """ create serials and invalids table
     """
-    connection = sqlite3.connect(config.DATABASE_FILE_PATH)
+    connection = MySQLdb.connect(
+        host=config.MYSQL_HOST,
+        db=config.MYSQL_DATABASE,
+        user=config.MYSQL_USERNAME,
+        passwd=config.MYSQL_PASSWORD,
+    )
     cursor = connection.cursor()
     cursor.execute("DROP TABLE IF EXISTS serials;")
     cursor.execute(
         """CREATE TABLE serials (
-            id INTEGER PRIMARY KEY,
-            reference TEXT,
-            description TEXT,
-            start_serial TEXT,
-            end_serial TEXT,
-            date date
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            reference VARCHAR(200),
+            description VARCHAR(30),
+            start_serial VARCHAR(30),
+            end_serial VARCHAR(200),
+            date DATETIME
         );"""
     )
 
     cursor.execute("DROP TABLE IF EXISTS invalids")
     cursor.execute(
         """CREATE TABLE invalids (
-            failed_serial TEXT PRIMARY KEY
+            failed_serial VARCHAR(30)
         );"""
     )
 
@@ -272,16 +282,21 @@ def check_serial(serial):
         [string] -- check result
     """
 
-    connection = sqlite3.connect(config.DATABASE_FILE_PATH)
+    connection = MySQLdb.connect(
+        host=config.MYSQL_HOST,
+        db=config.MYSQL_DATABASE,
+        user=config.MYSQL_USERNAME,
+        passwd=config.MYSQL_PASSWORD,
+    )
     cursor = connection.cursor()
 
-    query = "SELECT * FROM invalids WHERE failed_serial == ?;"
+    query = "SELECT * FROM invalids WHERE failed_serial = %s;"
     cursor.execute(query, (serial,))
 
     if len(cursor.fetchall()) > 0:
         return "your serial is invalid"
 
-    query = "SELECT * FROM serials WHERE start_serial <= ? AND end_serial >= ?"
+    query = "SELECT * FROM serials WHERE start_serial <= %s AND end_serial >= %s"
     cursor.execute(query, (serial, serial))
 
     if len(cursor.fetchall()) == 1:

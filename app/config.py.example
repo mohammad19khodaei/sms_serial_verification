@@ -7,8 +7,11 @@ CALL_BACK_TOKEN = ''
 # sms server address
 SMS_SERVER = '' 
 
-# file of database
-DATABASE_FILE_PATH = ''
+# mysql 
+MYSQL_HOST = 'localhost'
+MYSQL_DATABASE = 'sms_db'
+MYSQL_USERNAME = 'root'
+MYSQL_PASSWORD = 'secret'
 
 # secret key for session
 SECRET_KEY = ''
