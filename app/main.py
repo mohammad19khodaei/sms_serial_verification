@@ -149,6 +149,11 @@ def process():
     return jsonify({"message": "your sms message processed"}), 200
 
 
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template("404.html"), 404
+
+
 def send_sms(receiver, message):
     """send sms using arvan fake sms server
 
@@ -294,14 +299,17 @@ def check_serial(serial):
     cursor.execute(query, (serial,))
 
     if len(cursor.fetchall()) > 0:
+        connection.close()
         return "your serial is invalid"
 
     query = "SELECT * FROM serials WHERE start_serial <= %s AND end_serial >= %s"
-    cursor.execute(query, (serial, serial))
+    result = cursor.execute(query, (serial, serial))
 
-    if len(cursor.fetchall()) == 1:
+    if result == 1:
+        connection.close()
         return "your serial is valid"
 
+    connection.close()
     return "can not find your serial inside our db"
 
 
