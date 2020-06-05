@@ -213,7 +213,7 @@ def process():
     """
     data = request.form
     sender = data.get("from")
-    message = normalize_string(data.get("message"))
+    message = data.get("message")
 
     response = check_serial(message)
 
@@ -235,7 +235,7 @@ def check_one_serial():
         flash("Please enter a serial", "warning")
         return redirect(url_for("home"))
 
-    message = check_serial(normalize_string(serial))
+    message = check_serial(serial)
     flash(message, "info")
     return redirect(url_for("home"))
 
@@ -375,6 +375,8 @@ def check_serial(serial):
     Returns:
         [string] -- check result
     """
+
+    serial = normalize_string(serial)
 
     connection, cursor = get_connection()
 
