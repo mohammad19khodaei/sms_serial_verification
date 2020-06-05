@@ -89,7 +89,8 @@ def create_tables():
             sender VARCHAR(200),
             message VARCHAR(200),
             response VARCHAR(200),
-            received_at DATETIME
+            received_at DATETIME,
+            status ENUM('success', 'failure', 'not-found')
         );"""
     )
 
@@ -115,19 +116,35 @@ def home():
     cursor.execute(query)
     smss = []
     for sms in cursor.fetchall():
-        id, sender, message, response, received_at = sms
+        id, sender, message, response, received_at, status = sms
         smss.append(
             {
                 "sender": sender,
                 "message": message,
                 "response": response,
                 "received_at": received_at,
+                "status": status,
             }
         )
+    query = "SELECT count(*) FROM processed_sms WHERE status = 'success'"
+    success_count = cursor.execute(query)
+
+    query = "SELECT count(*) FROM processed_sms WHERE status = 'failure'"
+    failure_count = cursor.execute(query)
+
+    query = "SELECT count(*) FROM processed_sms WHERE status = 'not-found'"
+    notfound_count = cursor.execute(query)
 
     connection.close()
 
-    return render_template("index.html", data={"smss": smss})
+    data = {
+        "smss": smss,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "notfound_count": notfound_count,
+    }
+
+    return render_template("index.html", data=data)
 
 
 @app.route("/upload", methods=["POST"])
@@ -215,9 +232,9 @@ def process():
     sender = data.get("from")
     message = data.get("message")
 
-    response = check_serial(message)
+    response, status = check_serial(message)
 
-    save_sms_to_database(sender, message, response)
+    save_sms_to_database(sender, message, response, status)
 
     send_sms(sender, response)
     return jsonify({"message": "your sms message processed"}), 200
@@ -235,7 +252,7 @@ def check_one_serial():
         flash("Please enter a serial", "warning")
         return redirect(url_for("home"))
 
-    message = check_serial(serial)
+    message = check_serial(serial)[0]
     flash(message, "info")
     return redirect(url_for("home"))
 
@@ -257,7 +274,7 @@ def get_connection():
     return connection, cursor
 
 
-def save_sms_to_database(sender, message, response):
+def save_sms_to_database(sender, message, response, status):
     """[summary]
 
     Arguments:
@@ -267,8 +284,8 @@ def save_sms_to_database(sender, message, response):
     """
     connection, cursor = get_connection()
 
-    query = "INSERT INTO processed_sms (sender, message, response, received_at) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (sender, message, response, datetime.now()))
+    query = "INSERT INTO processed_sms (sender, message, response, received_at, status) VALUES (%s, %s, %s, %s, %s)"
+    cursor.execute(query, (sender, message, response, datetime.now(), status))
 
     connection.commit()
     connection.close()
@@ -385,17 +402,17 @@ def check_serial(serial):
 
     if len(cursor.fetchall()) > 0:
         connection.close()
-        return "your serial is invalid"
+        return "your serial is invalid", "failure"
 
     query = "SELECT * FROM serials WHERE start_serial <= %s AND end_serial >= %s"
     result = cursor.execute(query, (serial, serial))
 
     if result == 1:
         connection.close()
-        return "your serial is valid"
+        return "your serial is valid", "success"
 
     connection.close()
-    return "can not find your serial inside our db"
+    return "can not find your serial inside our db", "not-found"
 
 
 if __name__ == "__main__":
