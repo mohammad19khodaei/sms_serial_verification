@@ -1,6 +1,8 @@
 import MySQLdb
 import re
 import os
+import click
+from datetime import datetime
 from flask import (
     Flask,
     request,
@@ -13,6 +15,7 @@ from flask import (
     get_flashed_messages,
     render_template,
 )
+from flask.cli import with_appcontext
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -48,6 +51,55 @@ class User(UserMixin):  # silly user model
         self.name = "jadi"
 
 
+@click.command(name="create-tables")
+@with_appcontext
+def create_tables():
+    """ create serials and invalids table
+    """
+    connection = MySQLdb.connect(
+        host=config.MYSQL_HOST,
+        db=config.MYSQL_DATABASE,
+        user=config.MYSQL_USERNAME,
+        passwd=config.MYSQL_PASSWORD,
+    )
+    cursor = connection.cursor()
+    cursor.execute("DROP TABLE IF EXISTS serials;")
+    cursor.execute(
+        """CREATE TABLE serials (
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            reference VARCHAR(200),
+            description VARCHAR(30),
+            start_serial VARCHAR(30),
+            end_serial VARCHAR(200),
+            date DATETIME
+        );"""
+    )
+
+    cursor.execute("DROP TABLE IF EXISTS invalids")
+    cursor.execute(
+        """CREATE TABLE invalids (
+            failed_serial VARCHAR(30)
+        );"""
+    )
+
+    cursor.execute("DROP TABLE IF EXISTS processed_sms")
+    cursor.execute(
+        """CREATE TABLE processed_sms (
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            sender VARCHAR(200),
+            message VARCHAR(200),
+            response VARCHAR(200),
+            received_at DATETIME
+        );"""
+    )
+
+    connection.close()
+    print("Tables Created Successfully")
+
+
+app.cli.add_command(create_tables)
+
+
 def allowed_file(filename):
     return (
         "." in filename
@@ -58,7 +110,24 @@ def allowed_file(filename):
 @app.route("/", methods=["GET"])
 @login_required
 def home():
-    return render_template("index.html")
+    connection, cursor = get_connection()
+    query = "SELECT * FROM processed_sms ORDER BY received_at DESC LIMIT 1000"
+    cursor.execute(query)
+    smss = []
+    for sms in cursor.fetchall():
+        id, sender, message, response, received_at = sms
+        smss.append(
+            {
+                "sender": sender,
+                "message": message,
+                "response": response,
+                "received_at": received_at,
+            }
+        )
+
+    connection.close()
+
+    return render_template("index.html", data={"smss": smss})
 
 
 @app.route("/upload", methods=["POST"])
@@ -84,9 +153,12 @@ def upload_excel():
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
-    import_excel_to_db(filepath)
+    serial_count, invalid_count = import_excel_to_db(filepath)
     os.remove(filepath)
-    flash("excel file uploaded successfully", "success")
+    flash(
+        f"imported {serial_count} rows of serials and {invalid_count} rows of invalids",
+        "success",
+    )
     return redirect(url_for("home"))
 
 
@@ -145,6 +217,8 @@ def process():
 
     response = check_serial(message)
 
+    save_sms_to_database(sender, message, response)
+
     send_sms(sender, response)
     return jsonify({"message": "your sms message processed"}), 200
 
@@ -154,12 +228,58 @@ def page_not_found(e):
     return render_template("404.html"), 404
 
 
+@app.route("/check_one_serial", methods=["POST"])
+def check_one_serial():
+    serial = request.form.get("serial")
+    if not serial:
+        flash("Please enter a serial", "warning")
+        return redirect(url_for("home"))
+
+    message = check_serial(normalize_string(serial))
+    flash(message, "info")
+    return redirect(url_for("home"))
+
+
+def get_connection():
+    """get connection to mysql
+
+    Returns:
+        object: mysql connection
+    """
+    connection = MySQLdb.connect(
+        host=config.MYSQL_HOST,
+        db=config.MYSQL_DATABASE,
+        user=config.MYSQL_USERNAME,
+        passwd=config.MYSQL_PASSWORD,
+    )
+    cursor = connection.cursor()
+
+    return connection, cursor
+
+
+def save_sms_to_database(sender, message, response):
+    """[summary]
+
+    Arguments:
+        sender {string} -- sender of sms
+        message {string} -- message from sender
+        response {string} -- response to sender
+    """
+    connection, cursor = get_connection()
+
+    query = "INSERT INTO processed_sms (sender, message, response, received_at) VALUES (%s, %s, %s, %s)"
+    cursor.execute(query, (sender, message, response, datetime.now()))
+
+    connection.commit()
+    connection.close()
+
+
 def send_sms(receiver, message):
     """send sms using arvan fake sms server
 
     Arguments:
-        sender {[string]} -- [receiver of sms]
-        message {[string]} -- [text of sms]
+        sender {string} -- receiver of sms
+        message {string} -- text of sms
     """
     data = {"to": receiver, "message": message, "token": config.API_KEY}
     print(data)  # TODO uncomment below code
@@ -205,76 +325,45 @@ def normalize_string(data, fixed_size=30):
 
 
 def import_excel_to_db(file_path):
-    """import excel to sqlite
+    """ import excel to database
 
-    Arguments:
-        file_path {string} -- [excel path]
+    Args:
+        file_path (string): file path of excel file
+
+    Returns:
+        integer: serial count and failure count
     """
 
-    create_tables()
+    connection, cursor = get_connection()
 
-    connection = MySQLdb.connect(
-        host=config.MYSQL_HOST,
-        db=config.MYSQL_DATABASE,
-        user=config.MYSQL_USERNAME,
-        passwd=config.MYSQL_PASSWORD,
-    )
-    cursor = connection.cursor()
+    # remove every thing from serials and invalids table
+    cursor.execute("DELETE FROM serials WHERE 1")
+    cursor.execute("DELETE FROM invalids WHERE 1")
 
+    serial_counter = 0
     # sheet 0 contains valid codes
     data_frame = read_excel(file_path, sheet_name=0)
-
     for i, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
         start_serial = normalize_string(start_serial)
         end_serial = normalize_string(end_serial)
         query = "INSERT INTO serials(reference, description, start_serial, end_serial, date) VALUES (%s, %s, %s, %s, %s)"
         cursor.execute(query, (ref, desc, start_serial, end_serial, date))
-    # commit valid serials to serials table
+        serial_counter += 1
     connection.commit()
 
+    invalid_counter = 0
     # sheet 1 contains failed codes
     data_frame = read_excel(file_path, sheet_name=1)
     for i, (failed_serial,) in data_frame.iterrows():
         failed_serial = normalize_string(failed_serial)
         query = "INSERT INTO invalids VALUES (%s)"
         cursor.execute(query, (failed_serial,))
-    # commit failed serials to invalids table
+        invalid_counter += 1
     connection.commit()
 
-    # commit queries to database and close connection
     connection.close()
 
-
-def create_tables():
-    """ create serials and invalids table
-    """
-    connection = MySQLdb.connect(
-        host=config.MYSQL_HOST,
-        db=config.MYSQL_DATABASE,
-        user=config.MYSQL_USERNAME,
-        passwd=config.MYSQL_PASSWORD,
-    )
-    cursor = connection.cursor()
-    cursor.execute("DROP TABLE IF EXISTS serials;")
-    cursor.execute(
-        """CREATE TABLE serials (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            reference VARCHAR(200),
-            description VARCHAR(30),
-            start_serial VARCHAR(30),
-            end_serial VARCHAR(200),
-            date DATETIME
-        );"""
-    )
-
-    cursor.execute("DROP TABLE IF EXISTS invalids")
-    cursor.execute(
-        """CREATE TABLE invalids (
-            failed_serial VARCHAR(30)
-        );"""
-    )
-
-    connection.close()
+    return serial_counter, invalid_counter
 
 
 def check_serial(serial):
@@ -287,13 +376,7 @@ def check_serial(serial):
         [string] -- check result
     """
 
-    connection = MySQLdb.connect(
-        host=config.MYSQL_HOST,
-        db=config.MYSQL_DATABASE,
-        user=config.MYSQL_USERNAME,
-        passwd=config.MYSQL_PASSWORD,
-    )
-    cursor = connection.cursor()
+    connection, cursor = get_connection()
 
     query = "SELECT * FROM invalids WHERE failed_serial = %s;"
     cursor.execute(query, (serial,))

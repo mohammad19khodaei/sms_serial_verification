@@ -103,13 +103,13 @@
                             <div class="card mb-4">
                                 <div class="card-header"><i class="fas fa-database mr-1"></i>Check serial</div>
                                 <div class="card-body">
-                                    <form method="POST" action="{{ url_for('') }}"
+                                    <form method="POST" action="{{ url_for('check_one_serial') }}"
                                         class="d-none d-md-inline-block form-inline ml-auto mr-0 mr-md-3 my-2 my-md-0">
                                         <div class="input-group">
-                                            <input class="form-control" type="text" placeholder="Search for..."
+                                            <input class="form-control" type="text" placeholder="Serial" name="serial"
                                                 aria-label="Search" aria-describedby="basic-addon2" />
                                             <div class="input-group-append">
-                                                <button class="btn btn-primary" type="button"><i
+                                                <button class="btn btn-primary" type="submit"><i
                                                         class="fas fa-search"></i></button>
                                             </div>
                                         </div>
@@ -146,41 +146,29 @@
                                 <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
                                     <thead>
                                         <tr>
-                                            <th>Name</th>
-                                            <th>Position</th>
-                                            <th>Office</th>
-                                            <th>Age</th>
-                                            <th>Start date</th>
-                                            <th>Salary</th>
+                                            <th>Sender</th>
+                                            <th>Message</th>
+                                            <th>Response</th>
+                                            <th>Received At</th>
                                         </tr>
                                     </thead>
                                     <tfoot>
                                         <tr>
-                                            <th>Name</th>
-                                            <th>Position</th>
-                                            <th>Office</th>
-                                            <th>Age</th>
-                                            <th>Start date</th>
-                                            <th>Salary</th>
+                                            <th>Sender</th>
+                                            <th>Message</th>
+                                            <th>Response</th>
+                                            <th>Received At</th>
                                         </tr>
                                     </tfoot>
                                     <tbody>
+                                        {% for sms in data.smss %}
                                         <tr>
-                                            <td>Tiger Nixon</td>
-                                            <td>System Architect</td>
-                                            <td>Edinburgh</td>
-                                            <td>61</td>
-                                            <td>2011/04/25</td>
-                                            <td>$320,800</td>
+                                            <td>{{ sms.sender }}</td>
+                                            <td>{{ sms.message }}</td>
+                                            <td>{{ sms.response }}</td>
+                                            <td>{{ sms.received_at}}</td>
                                         </tr>
-                                        <tr>
-                                            <td>Garrett Winters</td>
-                                            <td>Accountant</td>
-                                            <td>Tokyo</td>
-                                            <td>63</td>
-                                            <td>2011/07/25</td>
-                                            <td>$170,750</td>
-                                        </tr>
+                                        {% endfor %}
                                     </tbody>
                                 </table>
                             </div>
