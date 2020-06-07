@@ -31,6 +31,8 @@ from werkzeug.utils import secure_filename
 import requests
 import config
 
+MAX_FLASH = 100
+
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = config.SECRET_KEY
@@ -226,7 +228,7 @@ def process():
     """ call this method when we receive sms from customers
 
     Returns:
-        [json] -- [confirmation]
+        json -- confirmation
     """
     data = request.form
     sender = data.get("from")
@@ -242,11 +244,19 @@ def process():
 
 @app.errorhandler(404)
 def page_not_found(e):
+    """404 page
+
+    Args:
+        e (object): error
+
+    """
     return render_template("404.html"), 404
 
 
 @app.route("/check_one_serial", methods=["POST"])
 def check_one_serial():
+    """check one serial that come from GUI
+    """
     serial = request.form.get("serial")
     if not serial:
         flash("Please enter a serial", "warning")
@@ -275,7 +285,7 @@ def get_connection():
 
 
 def save_sms_to_database(sender, message, response, status):
-    """[summary]
+    """save input sms to database
 
     Arguments:
         sender {string} -- sender of sms
@@ -350,6 +360,7 @@ def import_excel_to_db(file_path):
     Returns:
         integer: serial count and failure count
     """
+    total_flashes = 0
 
     connection, cursor = get_connection()
 
@@ -358,25 +369,43 @@ def import_excel_to_db(file_path):
     cursor.execute("DELETE FROM invalids WHERE 1")
 
     serial_counter = 0
-    # sheet 0 contains valid codes
-    data_frame = read_excel(file_path, sheet_name=0)
-    for i, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
-        start_serial = normalize_string(start_serial)
-        end_serial = normalize_string(end_serial)
-        query = "INSERT INTO serials(reference, description, start_serial, end_serial, date) VALUES (%s, %s, %s, %s, %s)"
-        cursor.execute(query, (ref, desc, start_serial, end_serial, date))
-        serial_counter += 1
-    connection.commit()
+    line_number = 1
+    data_frame = read_excel(file_path, sheet_name=0)  # sheet 0 contains valid serials
+    for _, (row, ref, desc, start_serial, end_serial, date) in data_frame.iterrows():
+        line_number += 1
+        try:
+            start_serial = normalize_string(start_serial)
+            end_serial = normalize_string(end_serial)
+            query = "INSERT INTO serials(reference, description, start_serial, end_serial, date) VALUES (%s, %s, %s, %s, %s)"
+            cursor.execute(query, (ref, desc, start_serial, end_serial, date))
+            serial_counter += 1
+            connection.commit()
+        except Exception as e:
+            total_flashes += 1
+            if total_flashes < MAX_FLASH:
+                flash(
+                    f"Error inserting line {line_number} from serials sheet SERIALS, {e}",
+                    "danger",
+                )
 
     invalid_counter = 0
-    # sheet 1 contains failed codes
+    line_number = 1
+    # sheet 1 contains failed serials
     data_frame = read_excel(file_path, sheet_name=1)
-    for i, (failed_serial,) in data_frame.iterrows():
-        failed_serial = normalize_string(failed_serial)
-        query = "INSERT INTO invalids VALUES (%s)"
-        cursor.execute(query, (failed_serial,))
-        invalid_counter += 1
-    connection.commit()
+    for _, (failed_serial,) in data_frame.iterrows():
+        try:
+            failed_serial = normalize_string(failed_serial)
+            query = "INSERT INTO invalids VALUES (%s)"
+            cursor.execute(query, (failed_serial,))
+            invalid_counter += 1
+            connection.commit()
+        except Exception as e:
+            total_flashes += 1
+            if total_flashes < MAX_FLASH:
+                flash(
+                    f"Error inserting line {line_number} from serials sheet SERIALS, {e}",
+                    "danger",
+                )
 
     connection.close()
 
