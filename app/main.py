@@ -265,8 +265,10 @@ def check_one_serial():
         flash("Please enter a serial", "warning")
         return redirect(url_for("home"))
 
-    message = check_serial(serial)[0]
-    flash(message, "info")
+    message,status = check_serial(serial)
+    alert_status_switcher = {"success": "success", "failure": "danger", "not-found": "warning"}
+    alert_status = alert_status_switcher.get(status)
+    flash(message,alert_status)
     return redirect(url_for("home"))
 
 
@@ -390,6 +392,9 @@ def import_excel_to_db(file_path):
                     f"Error inserting line {line_number} from serials sheet SERIALS, {e}",
                     "danger",
                 )
+            elif total_flashes == MAX_FLASH:
+                flash("Too Many Errors", "danger")
+
 
     invalid_counter = 0
     line_number = 1
@@ -409,6 +414,8 @@ def import_excel_to_db(file_path):
                     f"Error inserting line {line_number} from serials sheet SERIALS, {e}",
                     "danger",
                 )
+            elif total_flashes == MAX_FLASH:
+                flash("Too Many Errors", "danger")
 
     connection.close()
 
@@ -422,28 +429,26 @@ def check_serial(serial):
         serial {string} -- input serial
 
     Returns:
-        [string] -- check result
+        string -- check result
     """
 
     serial = normalize_string(serial)
 
     connection, cursor = get_connection()
 
-    query = "SELECT * FROM invalids WHERE failed_serial = %s;"
-    cursor.execute(query, (serial,))
+    with connection.cursor() as cursor:
+        query = "SELECT * FROM invalids WHERE failed_serial = %s;"
+        cursor.execute(query, (serial,))
 
-    if len(cursor.fetchall()) > 0:
-        connection.close()
-        return "your serial is invalid", "failure"
+        if len(cursor.fetchall()) > 0:
+            return "your serial is invalid", "failure"
 
-    query = "SELECT * FROM serials WHERE start_serial <= %s AND end_serial >= %s"
-    result = cursor.execute(query, (serial, serial))
+        query = "SELECT * FROM serials WHERE start_serial <= %s AND end_serial >= %s"
+        result = cursor.execute(query, (serial, serial))
 
-    if result == 1:
-        connection.close()
-        return "your serial is valid", "success"
+        if result == 1:
+            return "your serial is valid", "success"
 
-    connection.close()
     return "can not find your serial inside our db", "not-found"
 
 
