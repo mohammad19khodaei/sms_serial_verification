@@ -129,13 +129,16 @@ def home():
             }
         )
     query = "SELECT count(*) FROM processed_sms WHERE status = 'success'"
-    success_count = cursor.execute(query)
+    cursor.execute(query)
+    success_count = cursor.fetchone()[0]
 
     query = "SELECT count(*) FROM processed_sms WHERE status = 'failure'"
-    failure_count = cursor.execute(query)
+    cursor.execute(query)
+    failure_count = cursor.fetchone()[0]
 
     query = "SELECT count(*) FROM processed_sms WHERE status = 'not-found'"
-    notfound_count = cursor.execute(query)
+    cursor.execute(query)
+    notfound_count = cursor.fetchone()[0]
 
     connection.close()
 
